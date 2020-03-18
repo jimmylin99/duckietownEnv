@@ -1,15 +1,30 @@
+# coding=utf-8
 import gym
 import gym_duckietown
-from stable_baselines.common.policies import CnnPolicy
-from stable_baselines.common.vec_env import DummyVecEnv
-from stable_baselines import PPO2
-import time
+# from stable_baselines.common.policies import CnnPolicy
+# from stable_baselines.common.vec_env import DummyVecEnv
+# from stable_baselines import PPO2
+# import time
 from numpy import random
 import numpy as np
 import matplotlib.pyplot as plt
 
+
+"""
+Description:
+    Generate data set with TOT_SAMPLES samples consisting of a sequence of HISTORY_CNT + 1 consecutive observations,
+    and additional information, including actions, reward and done indicator.
+LIN
+2020/03/19
+"""
+
+# Image Size CONSTANT
 HEIGHT = 480
 WIDTH = 640
+# Sample Count CONSTANT
+TOT_SAMPLES = 5
+# History Size CONSTANT
+HISTORY_CNT = 4
 
 
 def rgb2gray(rgb):
@@ -20,93 +35,95 @@ def rgb2gray(rgb):
     return np.dot(rgb[..., :3], [0.299, 0.587, 0.114])
 
 
-def incImgDim(tmp_img):
+def packHistoryVec2CubeHistory(history_vec, action, reward, done):
     """
-    simple reshape
-    :param tmp_img: numpy array
-    :return: numpy array
+    pack all info into a sample
+    :param history_vec: numpy array with shape (HISTORY_CNT + 1, HEIGHT, WIDTH, 1)
+    :param action: numpy array with shape (2,)
+    :param reward: float
+    :param done: boolean
+    :return: packed images with shape (HEIGHT + 1, WIDTH, HISTORY_CNT + 1)
     """
-    return tmp_img.reshape((HEIGHT, WIDTH, 1))
-
-
-def packImg2CubeHistory(new_img):
-    """
-    acts on global variable trans_imgs
-    pack single series of images, converting several (maybe 5) images from 2 dimensions to 3 dimensions
-    :param new_img: numpy array with shape (height, width)
-    :return: packed images with shape (height, width, depth)
-    """
-    revised_img = incImgDim(new_img)
-    try:
-        global trans_imgs
-        trans_imgs
-    except NameError:
-        # global arr
-        print('Name Error')
-        trans_imgs = revised_img
+    cubeHistory = history_vector[0].reshape((HEIGHT, WIDTH, 1))
+    for i in range(HISTORY_CNT):
+        cubeHistory = np.append(cubeHistory, history_vector[i+1].reshape((HEIGHT, WIDTH, 1)), axis=2)
+    if done:
+        done_int = 1
     else:
-        # global arr
-        trans_imgs = np.append(trans_imgs, revised_img, axis=2)
+        done_int = -1
+    tmp_line = np.append(np.append(np.append(action, reward), done_int), np.zeros((WIDTH - 4,))).reshape((1, WIDTH, 1))
+    tmp_slice = tmp_line
+    for i in range(HISTORY_CNT):
+        tmp_slice = np.append(tmp_slice, tmp_line, axis=2)
+    cubeHistory = np.append(cubeHistory, tmp_slice, axis=0)
+    print(cubeHistory.shape)
+    return cubeHistory
+
+def reviseObs(obs):
+    """
+    return an revised observation
+    :return: a gray image representing the observation,
+    while the structure is particularly revised for constructing history_vector
+    numpy array with shape (1, HEIGHT, WIDTH, 1)
+    """
+    gray_img = rgb2gray(obs)
+    gray_img_with_depth = gray_img.reshape((HEIGHT, WIDTH, 1))
+    gray_img_with_depth_and_pre_dimension = gray_img_with_depth[np.newaxis, :]
+    return gray_img_with_depth_and_pre_dimension
 
 
+# Registration of environment
 env = gym.make('Duckietown-straight_road-v0')
 
-obs = env.reset()
-grayImg = rgb2gray(obs)
-imgs = np.array(grayImg)[np.newaxis, :]
-
 steps = 0
-while steps < 500:
-    print(steps)
-    obs = env.reset()
-    grayImgSet = rgb2gray(obs)
-    actionStep = 0
-    Action = (random.normal(loc=0.8, scale=0.2, size=1), random.uniform(-1, 1, size=1))
-    done = True
-    while actionStep < 5 - 1:
-        obs, reward, done, ___ = env.step(Action)
-
-        grayImg = rgb2gray(obs)
-        # _grayImg = np.array(grayImg)[np.newaxis, :]
-        grayImgSet = np.append(grayImgSet, grayImg, axis=0)
-        actionStep = actionStep + 1
-        if done:
-            break
-    # Action = (random.normal(loc=0.8, scale=, size=1), random.uniform(-1, 1, size=1))
-    # obs, _, done, ___ = env.step(Action)
-    # if done:
-    #     obs = env.reset()
-    # imgs = np.array(imgs)[np.newaxis, :]
-    # _grayImg = np.array(_grayImg)[np.newaxis, :]
+done = True
+history_vector = []
+while steps < TOT_SAMPLES:
     if done:
+        # reset the environment and history_vector
         obs = env.reset()
-        continue
-    _actionImg = np.append(np.array(Action), np.zeros(grayImg.shape[1] - 2))
-    # print(_actionImg)
-    # print(_actionImg.shape)
-    # time.sleep(10)
-    grayImgSet = np.append(grayImgSet, np.reshape(_actionImg, [1, 640]), axis=0)
-    _grayImgSet = np.array(grayImgSet)[np.newaxis, :]
-    if steps == 0:
-        imgs = _grayImgSet
+        gray_img = reviseObs(obs)
+        history_vector = gray_img
+        for i in range(HISTORY_CNT):
+            history_vector = np.append(history_vector, gray_img, axis=0)
+            # in total, history_vector has HISTORY_CNT + 1 gray images, consisting of almost all elements
+            # for a single cubeHistory, except for the substituted image generated via the coming action
+    # random.normal scale is the standard deviation, about 95% lies within two-sigma interval
+    # a cut off will happen at +/- 1
+    # Action = (speed, turning)
+    action = (random.normal(loc=0.7, scale=0.2, size=1),
+              random.normal(loc=0.0, scale=0.3, size=1))
+    # one step ahead, but the validation remains checked soon
+    # while even if the validation (i.e. done variable) matters,
+    # we still keep record all the situation, for the sake of having abundant samples
+    # covering more states
+    obs, reward, done, info = env.step(action)
+    steps += 1
+    gray_img = reviseObs(obs)
+    # update the history_vector, which should hold exactly HISTORY_CNT + 1 gray images
+    if history_vector.shape[0] == HISTORY_CNT:
+        history_vector = np.append(history_vector, gray_img, axis=0)
     else:
-        imgs = np.append(imgs, _grayImgSet, axis=0)
-    steps = steps + 1
-    # print(obs.shape)
-    # grayImg = rgb2gray(obs)
+        assert(history_vector.shape[0] == HISTORY_CNT + 1)
+        for i in range(HISTORY_CNT):
+            history_vector[i] = history_vector[i+1]
+        history_vector[HISTORY_CNT] = gray_img
+    cubeHistory = packHistoryVec2CubeHistory(history_vector, action, reward, done)
+    # append a sample (cubeHistory) into the whole data set
+    # data set will finally be a numpy array with shape (TOT_SAMPLES, HEIGHT + 1, WIDTH, HISTORY_CNT + 1)
+    try:
+        data
+    except NameError:
+        data = cubeHistory[np.newaxis, :]
+    else:
+        data = np.append(data, cubeHistory[np.newaxis, :], axis=0)
 
-fig = plt.figure()
-ax = fig.add_subplot(111)
-ax.imshow(imgs[0], cmap=plt.cm.gray)
-# ax = fig.add_subplot(222)
-# ax.imshow(obs)
-# ax = fig.add_subplot(223)
-# ax.imshow(grayImg)
-# ax = fig.add_subplot(224)
-# ax.imshow(obs, cmap=plt.cm.gray)
-plt.show()
 
-print(grayImgSet.shape)
-print(imgs.shape)
+# fig = plt.figure()
+# ax = fig.add_subplot(111)
+# ax.imshow(data[0, :, :, 0], cmap=plt.cm.gray)
+# plt.show()
 
-np.savez('duckie_img.npz', imgs)
+print(data.shape)
+
+np.savez('dataset_vae.npz', data)
