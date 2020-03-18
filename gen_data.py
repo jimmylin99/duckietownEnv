@@ -8,14 +8,25 @@ from numpy import random
 import numpy as np
 import matplotlib.pyplot as plt
 
+HEIGHT = 480
+WIDTH = 640
+
 
 def rgb2gray(rgb):
+    """
+    :param rgb: numpy with shape(HEIGHT, WIDTH, 3)
+    :return: numpy with shape(HEIGHT, WIDTH)
+    """
     return np.dot(rgb[..., :3], [0.299, 0.587, 0.114])
 
 
 def incImgDim(tmp_img):
-
-    return
+    """
+    simple reshape
+    :param tmp_img: numpy array
+    :return: numpy array
+    """
+    return tmp_img.reshape((HEIGHT, WIDTH, 1))
 
 
 def packImg2CubeHistory(new_img):
