@@ -7,7 +7,7 @@ import gym_duckietown
 # import time
 from numpy import random
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 
 """
@@ -35,13 +35,14 @@ def rgb2gray(rgb):
     return np.dot(rgb[..., :3], [0.299, 0.587, 0.114])
 
 
-def packHistoryVec2CubeHistory(history_vec, action, reward, done):
+def packHistoryVec2CubeHistory(history_vec, action, reward, done, speed):
     """
     pack all info into a sample
     :param history_vec: numpy array with shape (HISTORY_CNT + 1, HEIGHT, WIDTH, 1)
     :param action: numpy array with shape (2,)
     :param reward: float
     :param done: boolean
+    :param speed: float (non-negative)
     :return: packed images with shape (HEIGHT + 1, WIDTH, HISTORY_CNT + 1)
     """
     cubeHistory = history_vector[0].reshape((HEIGHT, WIDTH, 1))
@@ -51,12 +52,14 @@ def packHistoryVec2CubeHistory(history_vec, action, reward, done):
         done_int = 1
     else:
         done_int = -1
-    tmp_line = np.append(np.append(np.append(action, reward), done_int), np.zeros((WIDTH - 4,))).reshape((1, WIDTH, 1))
+    # TODO: can this following line of code be rewritten in a more decent way?
+    tmp_line = np.append(np.append(np.append(np.append(action, reward), done_int), speed), np.zeros((WIDTH - 5,))) \
+        .reshape((1, WIDTH, 1))
     tmp_slice = tmp_line
     for i in range(HISTORY_CNT):
         tmp_slice = np.append(tmp_slice, tmp_line, axis=2)
     cubeHistory = np.append(cubeHistory, tmp_slice, axis=0)
-    print(cubeHistory.shape)
+    # print(cubeHistory.shape)
     return cubeHistory
 
 def reviseObs(obs):
@@ -73,14 +76,17 @@ def reviseObs(obs):
 
 
 # Registration of environment
-env = gym.make('Duckietown-straight_road-v0')
+# we need the speed of agent, so turn full_transparency on
+env = gym.make('Duckietown-straight_road-v0', full_transparency=True)
 
 steps = 0
 done = True
 history_vector = []
 while steps < TOT_SAMPLES:
+    print('step %s' % steps)
     if done:
         # reset the environment and history_vector
+        print('one episode done')
         obs = env.reset()
         gray_img = reviseObs(obs)
         history_vector = gray_img
@@ -91,8 +97,8 @@ while steps < TOT_SAMPLES:
     # random.normal scale is the standard deviation, about 95% lies within two-sigma interval
     # a cut off will happen at +/- 1
     # Action = (speed, turning)
-    action = (random.normal(loc=0.7, scale=0.2, size=1),
-              random.normal(loc=0.0, scale=0.3, size=1))
+    action = np.clip([random.normal(loc=0.6, scale=0.5, size=1),
+                      random.normal(loc=0.0, scale=0.3, size=1)], -1, 1)
     # one step ahead, but the validation remains checked soon
     # while even if the validation (i.e. done variable) matters,
     # we still keep record all the situation, for the sake of having abundant samples
@@ -108,7 +114,8 @@ while steps < TOT_SAMPLES:
         for i in range(HISTORY_CNT):
             history_vector[i] = history_vector[i+1]
         history_vector[HISTORY_CNT] = gray_img
-    cubeHistory = packHistoryVec2CubeHistory(history_vector, action, reward, done)
+    # notice that the agent speed is stacked in the info map, which is a float variable
+    cubeHistory = packHistoryVec2CubeHistory(history_vector, action, reward, done, info['Simulator']['robot_speed'])
     # append a sample (cubeHistory) into the whole data set
     # data set will finally be a numpy array with shape (TOT_SAMPLES, HEIGHT + 1, WIDTH, HISTORY_CNT + 1)
     try:
