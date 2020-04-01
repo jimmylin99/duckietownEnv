@@ -7,22 +7,25 @@ import gym_duckietown
 # import time
 from numpy import random
 import numpy as np
-# import matplotlib.pyplot as plt
+from skimage import transform
+import matplotlib.pyplot as plt
 
 
 """
 Description:
     Generate data set with TOT_SAMPLES samples consisting of a sequence of HISTORY_CNT + 1 consecutive observations,
     and additional information, including actions, reward and done indicator.
+    SOLVED: Increase the efficiency, replace numpy.append with built-in list manipulation
 LIN
 2020/03/19
 """
 
 # Image Size CONSTANT
-HEIGHT = 480
-WIDTH = 640
+SCALING_CONSTANT = 1. / 4.
+HEIGHT = round(480 * SCALING_CONSTANT)
+WIDTH = round(640 * SCALING_CONSTANT)
 # Sample Count CONSTANT
-TOT_SAMPLES = 5
+TOT_SAMPLES = 300
 # History Size CONSTANT
 HISTORY_CNT = 4
 
@@ -64,13 +67,14 @@ def packHistoryVec2CubeHistory(history_vec, action, reward, done, speed):
 
 def reviseObs(obs):
     """
-    return an revised observation
+    return an revised observation, including modifying the size if necessary
     :return: a gray image representing the observation,
     while the structure is particularly revised for constructing history_vector
     numpy array with shape (1, HEIGHT, WIDTH, 1)
     """
     gray_img = rgb2gray(obs)
-    gray_img_with_depth = gray_img.reshape((HEIGHT, WIDTH, 1))
+    scaled_img = transform.rescale(gray_img, SCALING_CONSTANT, anti_aliasing=True)
+    gray_img_with_depth = scaled_img.reshape((HEIGHT, WIDTH, 1))
     gray_img_with_depth_and_pre_dimension = gray_img_with_depth[np.newaxis, :]
     return gray_img_with_depth_and_pre_dimension
 
@@ -82,6 +86,7 @@ env = gym.make('Duckietown-straight_road-v0', full_transparency=True)
 steps = 0
 done = True
 history_vector = []
+data = []
 while steps < TOT_SAMPLES:
     print('step %s' % steps)
     if done:
@@ -98,7 +103,7 @@ while steps < TOT_SAMPLES:
     # a cut off will happen at +/- 1
     # Action = (speed, turning)
     action = np.clip([random.normal(loc=0.6, scale=0.5, size=1),
-                      random.normal(loc=0.0, scale=0.3, size=1)], -1, 1)
+                      random.normal(loc=0.0, scale=0.5, size=1)], -1, 1)
     # one step ahead, but the validation remains checked soon
     # while even if the validation (i.e. done variable) matters,
     # we still keep record all the situation, for the sake of having abundant samples
@@ -118,18 +123,21 @@ while steps < TOT_SAMPLES:
     cubeHistory = packHistoryVec2CubeHistory(history_vector, action, reward, done, info['Simulator']['robot_speed'])
     # append a sample (cubeHistory) into the whole data set
     # data set will finally be a numpy array with shape (TOT_SAMPLES, HEIGHT + 1, WIDTH, HISTORY_CNT + 1)
-    try:
-        data
-    except NameError:
-        data = cubeHistory[np.newaxis, :]
-    else:
-        data = np.append(data, cubeHistory[np.newaxis, :], axis=0)
+    # variable data is the built-in list
+    data.append(cubeHistory.tolist())
+    # try:
+    #     data
+    # except NameError:
+    #     data = cubeHistory[np.newaxis, :]
+    # else:
+    #     data = np.append(data, cubeHistory[np.newaxis, :], axis=0)
 
+data = np.array(data)
 
-# fig = plt.figure()
-# ax = fig.add_subplot(111)
-# ax.imshow(data[0, :, :, 0], cmap=plt.cm.gray)
-# plt.show()
+fig = plt.figure()
+ax = fig.add_subplot(111)
+ax.imshow(data[0, :, :, 0], cmap=plt.cm.gray)
+plt.show()
 
 print(data.shape)
 
