@@ -3,11 +3,13 @@ __version__ = 'v2'
 
 import gym
 import gym_duckietown
-from time import time
+from time import time, sleep
+from sys import getsizeof
 from numpy import random
 import numpy as np
 from skimage import transform
 import matplotlib.pyplot as plt
+import argparse
 import logging
 
 
@@ -21,8 +23,12 @@ LIN
 2020/04/01
 """
 
+parser = argparse.ArgumentParser()
+parser.add_argument('-i', '--id', help='id of data set', default=0, type=int)
+args = parser.parse_args()
+
 # define logger (basic config fails because of root handler exists)
-logger_file_name = 'log_gen_data.log'
+logger_file_name = 'log_gen_data{}.log'.format(args.id)
 logger = logging.getLogger('gen_data%s' % __version__)
 logger.setLevel(logging.DEBUG)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -31,14 +37,14 @@ handler.setFormatter(formatter)
 handler.setLevel(logging.INFO)
 logger.addHandler(handler)
 
-logger.info('gen_data-v2')
+logger.info('gen_data-v2_' + str(args.id))
 
 # Image Size CONSTANT
 SCALING_CONSTANT = 1. / 4.
 HEIGHT = round(480 * SCALING_CONSTANT)
 WIDTH = round(640 * SCALING_CONSTANT)
 # Sample Count CONSTANT
-TOT_SAMPLES = 300
+TOT_SAMPLES = 1000
 # History Size CONSTANT
 HISTORY_CNT = 4
 
@@ -111,6 +117,31 @@ def get_action(steps, cur_step):
         else:
             return -1.0
     return 0.0
+
+
+def plot_samples():
+    done_id = 4
+    fig = plt.figure()
+    for i in range(0, 100):
+        index = i
+        ax = fig.add_subplot(10, 10, i + 1)
+        ax.axis('off')
+        ax.imshow(data[index, :HEIGHT, :, 0], cmap=plt.cm.gray)
+        done_int = data[index, HEIGHT, 7, 0]
+        ax.set_title('done: %s' % done_int, size=5, fontweight='normal', pad=2.0)
+        if done_int == 1.0:
+            done_id = index
+    plt.subplots_adjust(hspace=0.4, wspace=0.1)
+    plt.savefig('sampleDataset.svg', format='svg', dpi=1200)
+
+    fig = plt.figure()
+    for i in range(0, 5):
+        for j in range(-1, 2):
+            ax = fig.add_subplot(3, 5, (j + 1) * 5 + i + 1)
+            ax.axis('off')
+            ax.imshow(data[done_id + j, :HEIGHT, :, i], cmap=plt.cm.gray)
+    plt.subplots_adjust(hspace=0.1)
+    plt.savefig('sampleHistoryImg.svg', format='svg', dpi=1200)
 
 
 # Registration of environment
@@ -192,33 +223,16 @@ while steps < TOT_SAMPLES:
     # variable data is the built-in list
     time_0 = time()
     data.append(cubeHistory.tolist())
+    # if steps % 500 == 0:
+    #     memory_size_of_data = getsizeof(data)
+    #     print('data size: {}'.format(memory_size_of_data))
+    #     sleep(1)
     sum_time[3] += time() - time_0
     print('after step %s' % steps)
 
 data = np.array(data, dtype=float)
 
-done_id = 4
-fig = plt.figure()
-for i in range(0, 100):
-    index = i
-    ax = fig.add_subplot(10, 10, i+1)
-    ax.axis('off')
-    ax.imshow(data[index, :HEIGHT, :, 0], cmap=plt.cm.gray)
-    done_int = data[index, HEIGHT, 7, 0]
-    ax.set_title('done: %s' % done_int, size=5, fontweight='normal', pad=2.0)
-    if done_int == 1.0:
-        done_id = index
-plt.subplots_adjust(hspace=0.4, wspace=0.1)
-plt.savefig('sampleDataset.svg', format='svg', dpi=1200)
-
-fig = plt.figure()
-for i in range(0, 5):
-    for j in range(-1, 2):
-        ax = fig.add_subplot(3, 5, (j+1)*5+i+1)
-        ax.axis('off')
-        ax.imshow(data[done_id + j, :HEIGHT, :, i], cmap=plt.cm.gray)
-plt.subplots_adjust(hspace=0.1)
-plt.savefig('sampleHistoryImg.svg', format='svg', dpi=1200)
+# plot_samples()
 
 logger.info('data shape is ' + str(data.shape))
 logger.info('total episodes %s' % cnt_done)
@@ -230,7 +244,8 @@ logger.info('average time for part 3: ' + str(sum_time[2] / steps) + 'sec')
 logger.info('average time for part 4: ' + str(sum_time[3] / steps) + 'sec')
 print('info are saved into log file and image files')
 
-np.savez('dataset_vae.npz', data)
+np.savez('dataset_vae_{}.npz'.format(args.id), data)
 
 print('completed: data set generation')
 logger.info('time used: ' + str(time() - start_time) + 'sec')
+print('finished for id {}'.format(args.id))
